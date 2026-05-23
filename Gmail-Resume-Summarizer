@@ -1,0 +1,150 @@
+// ==========================================
+// CONFIGURATION: Replace these with your data
+// ==========================================
+const GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE"; //Replaced with GITHUB Version
+const DRIVE_FOLDER_ID = "18010lgzrftkFIpecdjb2FIR6Pl7jUQTd"; // <-- Put your real Drive Folder ID here!
+
+// GMAIL SEARCH QUERY: Looks for unread emails with the subject "Resume" and an attachment
+const GMAIL_SEARCH_QUERY = 'is:unread subject:Resume has:attachment';
+
+function automatedEmailSummarizer() {
+  let threads = GmailApp.search(GMAIL_SEARCH_QUERY);
+  if (threads.length === 0) {
+    Logger.log("No unread emails found matching query: " + GMAIL_SEARCH_QUERY);
+    return;
+  }
+  
+  for (let i = 0; i < threads.length; i++) {
+    let thread = threads[i];
+    let messages = thread.getMessages();
+    
+    for (let m = 0; m < messages.length; m++) {
+      let message = messages[m];
+      if (!message.isUnread()) continue; 
+      
+      let attachments = message.getAttachments();
+      let emailSubject = message.getSubject();
+      
+      Logger.log("Processing email: " + emailSubject);
+      
+      for (let j = 0; j < attachments.length; j++) {
+        let attachment = attachments[j];
+        let contentType = attachment.getContentType();
+        let fileName = attachment.getName();
+        let attachmentText = "";
+        
+        // Extract text based on file type
+        if (contentType === "text/plain" || contentType === "text/csv") {
+          attachmentText = attachment.getDataAsString();
+        } else if (contentType === "application/pdf") {
+          attachmentText = extractTextFromPDF(attachment);
+        } else if (contentType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || fileName.endsWith(".docx")) {
+          attachmentText = extractTextFromDocx(attachment);
+        } else {
+          Logger.log("Skipping unsupported attachment type: " + contentType);
+          continue;
+        }
+        
+        if (attachmentText && attachmentText.trim().length > 0) {
+          Logger.log("Sending " + fileName + " content to Gemini API...");
+          let summary = callGeminiAPI(attachmentText, fileName);
+          
+          // CREATE THE SUMMARY directly into your target folder using Drive API v3 rules
+          let docTitle = "Summary - " + fileName + " (" + new Date().toLocaleDateString() + ")";
+          let resource = {
+          title: docTitle,
+          mimeType: "application/vnd.google-apps.document",
+          parents: [{"id": DRIVE_FOLDER_ID}]
+          };
+          
+          let summaryFile = Drive.Files.insert(resource);
+          let newDoc = DocumentApp.openById(summaryFile.id);
+          let docBody = newDoc.getBody();
+          
+          docBody.appendParagraph("Source Email Subject: " + emailSubject).setHeading(DocumentApp.ParagraphHeading.HEADING2);
+          docBody.appendParagraph("Original File: " + fileName).setItalic(true);
+          docBody.appendHorizontalRule();
+          docBody.appendParagraph(summary);
+          newDoc.saveAndClose();
+          
+          Logger.log("Successfully saved summary: " + docTitle);
+        }
+      }
+      message.markRead();
+    }
+  }
+}
+
+/**
+ * Converts a .docx attachment into a temporary Google Doc using Drive v3/v2 legacy wrapper compatibility
+ */
+function extractTextFromDocx(docxBlob) {
+  try {
+    let resource = {
+      title: docxBlob.getName().replace(/\.docx$/i, ''),
+      mimeType: "application/vnd.google-apps.document"
+    };
+    let tempFile = Drive.Files.insert(resource, docxBlob);
+    let doc = DocumentApp.openById(tempFile.id);
+    let text = doc.getBody().getText();
+    Drive.Files.remove(tempFile.id);
+    return text;
+  } catch (e) {
+    Logger.log("Error extracting DOCX: " + e.toString());
+    return "";
+  }
+}
+
+/**
+ * Uses Google OCR via Drive Service to extract text from a PDF
+ */
+function extractTextFromPDF(pdfBlob) {
+  try {
+    let resource = {
+      title: pdfBlob.getName(),
+      mimeType: "application/vnd.google-apps.document"
+    };
+    let tempFile = Drive.Files.insert(resource, pdfBlob, { ocr: true });
+    let doc = DocumentApp.openById(tempFile.id);
+    let text = doc.getBody().getText();
+    Drive.Files.remove(tempFile.id);
+    return text;
+  } catch (e) {
+    Logger.log("Error extracting PDF: " + e.toString());
+    return "";
+  }
+}
+
+/**
+ * Sends a POST request to Gemini 2.5 to summarize text
+ */
+function callGeminiAPI(textToSummarize, fileName) {
+  const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + GEMINI_API_KEY;
+  const prompt = "You are an expert executive assistant. Provide a concise, professional summary of the following resume document named '" + fileName + "'. Highlight key technical skills, professional experience milestones, and clear accomplishments: \n\n" + textToSummarize;
+  
+  const payload = {
+    "contents": [{ "parts": [{ "text": prompt }] }]
+  };
+  
+  const options = {
+    "method": "POST",
+    "contentType": "application/json",
+    "payload": JSON.stringify(payload),
+    "muteHttpExceptions": true
+  };
+  
+  try {
+    let response = UrlFetchApp.fetch(url, options);
+    let json = JSON.parse(response.getContentText());
+    
+    if (json.candidates && json.candidates[0].content.parts[0].text) {
+      return json.candidates[0].content.parts[0].text;
+    } else {
+      Logger.log("API Error structure: " + response.getContentText());
+      return "Error: Could not generate a summary.";
+    }
+  } catch (e) {
+    Logger.log("API Fetch Error: " + e.toString());
+    return "Error: Failed to communicate with the Gemini API.";
+  }
+}
