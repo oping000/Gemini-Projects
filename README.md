@@ -24,8 +24,7 @@ Here is exactly what to do first:
 	3. Look near the top-left corner of the screen and click the button that says Create API Key (or Get API key).
 	4. Click Create API key again in the pop-up, select a project (or let it create a default one), and copy the long string of letters and numbers it gives you.
 
-API Key
-AIzaSyAtrTGSf6PI24M01A2GnEueEyWPp2gguj4
+API Key: 
 
 STEP 2
 Now we need to set up Gmail and Google Drive so the script knows exactly where to look for your emails and where to save your summaries.
