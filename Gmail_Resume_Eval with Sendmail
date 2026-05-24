@@ -1,0 +1,198 @@
+// ==========================================
+// UNIQUE CONFIGURATION KEYS 
+// ==========================================
+const EVAL_GEMINI_KEY = 'AIzaSyCZLJOPXmsxzPiWPJE9Bkg8Pn2LeI1JuhQ'; 
+const EVAL_GEMINI_URL = 'https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent';
+
+// Your existing folder used for temporary work AND saving permanent summaries
+const EVAL_FOLDER_ID = '18010lgzrftkFIpecdjb2FIR6Pl7jUQTd'; 
+const PERMANENT_SUCCESS_FOLDER_ID = '18010lgzrftkFIpecdjb2FIR6Pl7jUQTd'; 
+
+// ==========================================
+// MAIN WORKFLOW ENGINE
+// ==========================================
+
+/**
+ * Main function to process unread resume emails and send status alerts
+ */
+function processResumeEmails() {
+  const threads = GmailApp.search('is:unread subject:(resume OR application)');
+  const myEmail = "oping00@gmail.com"; 
+  
+  for (const thread of threads) {
+    const messages = thread.getMessages();
+    const lastMessage = messages[messages.length - 1]; 
+    const attachments = lastMessage.getAttachments();
+    let resumeText = "";
+    let candidateName = lastMessage.getFrom().replace(/<.*>/, "").trim(); 
+    
+    for (const attachment of attachments) {
+      if (attachment.getContentType() === "application/pdf" || attachment.getContentType() === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+        resumeText = extractTextFromAttachment(attachment);
+        break; 
+      }
+    }
+    
+    if (resumeText) {
+      Logger.log(`Evaluating resume from: ${lastMessage.getFrom()}`);
+      const evalData = evaluateResumeStructured(resumeText);
+      
+      if (evalData && evalData.passAllChecks === true) {
+        Logger.log(`🟢 PASSED ALL CHECKS. Saving summary for ${candidateName}...`);
+        saveSummaryToDrive(candidateName, evalData.executiveSummary);
+        
+        // 📧 AUTOMATED SUCCESS ALERT VIA GMAILAPP
+        GmailApp.sendEmail(myEmail, `🟢 Resume PASSED: ${candidateName}`, "", {
+          htmlBody: `
+            <h3>Good news! ${candidateName} has passed all screening checks.</h3>
+            <p>The executive summary has been saved to your Google Drive folder.</p>
+            <hr/>
+            <strong>Generated Executive Summary:</strong><br/>
+            <p style="font-style: italic; color: #333333;">"${evalData.executiveSummary}"</p>
+          `
+        });
+        
+        thread.markRead(); 
+      } else if (evalData) {
+        Logger.log(`🔴 FAILED QA CHECKS. Skipping candidate and cleaning workspace.`);
+        
+        // 📧 AUTOMATED FAILURE ALERT VIA GMAILAPP
+        GmailApp.sendEmail(myEmail, `🔴 Resume FAILED: ${candidateName}`, "", {
+          htmlBody: `
+            <h3>Screening Result: Failed</h3>
+            <p>Candidate <strong>${candidateName}</strong> did not clear the gateway criteria.</p>
+            <hr/>
+            <strong>Reasoning Breakdown:</strong>
+            <ul>
+              <li><strong>Technical Skills Check:</strong> ${evalData.technicalSkillsCheck}</li>
+              <li><strong>Length Check (Original <= 1000 words):</strong> ${evalData.lengthCheck}</li>
+              <li><strong>Data Integrity:</strong> ${evalData.dataIntegrityCheck}</li>
+            </ul>
+          `
+        });
+        
+        thread.markRead(); 
+      } else {
+        Logger.log("⚠️ Evaluation bypassed due to an API formatting issue.");
+      }
+    }
+  }
+}
+
+// ==========================================
+// HELPER METHODS & UTILITIES
+// ==========================================
+
+/**
+ * Extracts text dynamically based on whether it is a PDF or a Word Document
+ */
+function extractTextFromAttachment(attachment) {
+  try {
+    const fileBlob = attachment.copyBlob();
+    const mimeType = attachment.getContentType();
+    
+    const resource = {
+      title: fileBlob.getName(),
+      mimeType: mimeType,
+      parents: [{ id: EVAL_FOLDER_ID }] 
+    };
+    
+    let docFile;
+    
+    if (mimeType === "application/pdf") {
+      docFile = Drive.Files.insert(resource, fileBlob, { ocr: true });
+    } else {
+      docFile = Drive.Files.insert({
+        title: fileBlob.getName(),
+        parents: [{ id: EVAL_FOLDER_ID }]
+      }, fileBlob, { convert: true });
+    }
+    
+    const doc = DocumentApp.openById(docFile.id);
+    const text = doc.getBody().getText();
+    
+    Drive.Files.remove(docFile.id); 
+    
+    return text;
+  } catch (e) {
+    Logger.log("Error extracting text: " + e.toString());
+    return null;
+  }
+}
+
+/**
+ * Saves the approved Executive Summary permanently to Drive
+ */
+function saveSummaryToDrive(candidateName, summaryText) {
+  try {
+    const folder = DriveApp.getFolderById(PERMANENT_SUCCESS_FOLDER_ID);
+    const fileName = `${candidateName} - Executive Summary.txt`;
+    folder.createFile(fileName, summaryText, MimeType.PLAIN_TEXT);
+  } catch (e) {
+    Logger.log("Error saving permanent file: " + e.toString());
+  }
+}
+
+/**
+ * Requests a JSON validation format from Gemini text output based on ORIGINAL document length
+ */
+function evaluateResumeStructured(resumeText) {
+  const prompt = `
+    You are a data validation system. Process the raw resume data below into an Executive Summary, then execute your 3 QA checks.
+    You must output your response strictly as a valid, single parseable JSON object matching the schema requested below. Do not include any introductory or concluding text.
+
+    [Raw Resume Data]
+    ${resumeText}
+
+    ---
+    GUARDRAIL RULES:
+    1. **Key Technical Skills**: Ensure the summary explicitly calls out core technical tools found in the raw data (like Snowflake, SQL, Python, Tableau, Power BI, etc.). Set "technicalSkillsCheck" to "Pass" or "Fail".
+    2. **Strict Original Length Limit**: Count the total words in the provided [Raw Resume Data] text. If the original document text is strictly 1000 words or fewer, set "lengthCheck" to "Pass". If it is over 1000 words, set "lengthCheck" to "Fail".
+    3. **Data Integrity**: Cross-reference everything. No hallucinations. Set "dataIntegrityCheck" to "Pass" or "Fail".
+    4. **Pass All Flag**: If ALL THREE of the above checks are "Pass", set "passAllChecks" to true. If ANY fail, set "passAllChecks" to false.
+
+    ---
+    JSON SCHEMA OUTPUT FORMAT:
+    {
+      "executiveSummary": "Your generated summary string here...",
+      "technicalSkillsCheck": "Pass",
+      "lengthCheck": "Pass",
+      "dataIntegrityCheck": "Pass",
+      "passAllChecks": true
+    }
+  `;
+
+  const payload = {
+    contents: [{ parts: [{ text: prompt }] }]
+  };
+
+  const options = {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+
+  try {
+    const response = UrlFetchApp.fetch(`${EVAL_GEMINI_URL}?key=${EVAL_GEMINI_KEY}`, options);
+    const responseText = response.getContentText();
+    const json = JSON.parse(responseText);
+    
+    if (json.error) {
+      Logger.log("Gemini API Error: " + json.error.message);
+      return null;
+    }
+    
+    if (json.candidates && json.candidates[0].content.parts[0].text) {
+      let rawText = json.candidates[0].content.parts[0].text;
+      rawText = rawText.replace(/```json/gi, "").replace(/```/g, "").trim();
+      const parsedEval = JSON.parse(rawText);
+      return parsedEval;
+    }
+    
+    return null;
+  } catch (e) {
+    Logger.log("Error parsing text to JSON object: " + e.toString());
+    return null;
+  }
+}
