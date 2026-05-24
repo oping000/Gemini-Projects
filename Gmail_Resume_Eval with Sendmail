@@ -1,7 +1,7 @@
 // ==========================================
 // UNIQUE CONFIGURATION KEYS 
 // ==========================================
-const EVAL_GEMINI_KEY = 'AIzaSyCZLJOPXmsxzPiWPJE9Bkg8Pn2LeI1JuhQ'; 
+const EVAL_GEMINI_KEY = ''; 
 const EVAL_GEMINI_URL = 'https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent';
 
 // Your existing folder used for temporary work AND saving permanent summaries
