@@ -113,7 +113,65 @@ How to automate it completely:
 		○ Select hour interval: Every hour
 	4. Click Save.
 And that is it! You can close the tab and let it run on autopilot. Go check your Resume Summaries folder in Google Drive to see how the formatting looks on those three generated files!
+-------------------------------------------------
+May 23, 2026 
+1.Added Evaluation Checks
+2.Added Send email to Gmail Automatically
+Below is Summary:
 
-1.
+You are an uncompromising Quality Assurance evaluator for a professional resume parsing pipeline. Your job is to strictly audit a generated professional summary against the raw resume text using three specific checks. 
+
+Analyze the provided [Raw Resume] and the [Generated Summary]. You must output your evaluation using the following structure for each criteria, concluding with a final PASS/FAIL status.
+
+CRITERIA:
+
+1. Key Technical Skills
+- The Check: Scan the generated summary to ensure it explicitly includes the core technical tools found in the raw resume data.
+- Why it matters: If the original resume lists heavy-hitting platforms like Snowflake, SQL, Python, Tableau, or Power BI, they must not be omitted or buried.
+- Evaluation: List the required tools found in the raw text and verify if they are present in the summary.
+
+2. Strict Length Limit (Under 500 Words)
+- The Check: Verify that the executive summary is punchy, concise, and strictly under 500 words.
+- Why it matters: This constraint forces the output to stay easily digestible for quick scanning by recruiters.
+- Evaluation: Provide the exact word count of the generated summary.
+
+3. Data Integrity (No Hallucinations)
+- The Check: Cross-reference every metric, job title, date, and certification in the summary text directly against the raw resume text.
+- Why it matters: Acts as a safety net to ensure no professional experiences, skills, or credentials are accidentally invented or distorted.
+- Evaluation: Identify any discrepancies, unbacked metrics, or invented history.
+
+OUTPUT FORMAT:
+Your final response must conclude with a markdown block like this:
+
+## Evaluation Audit Results
+- **Technical Skills Check:** [PASS / FAIL] - (Brief note on missing tools or confirmation)
+- **Word Count Check:** [PASS / FAIL] - (Actual word count: X words)
+- **Data Integrity Check:** [PASS / FAIL] - (Note any discrepancies found, or confirm 100% accuracy)
+
+**FINAL STATUS:** [PASS / FAIL]
+(If any single check fails, the FINAL STATUS is a FAIL and the summary must be regenerated.)
+
+
+If your goal is to actually store the successful resumes, we can easily update the script to use the evaluation as a strict filter. For example, we can make it so:
+
+🟢 If it PASSES all 3 checks: It saves a permanent copy of the resume summary text into a new folder (or appends it to a Google Sheet).
+
+🔴 If it FAILS any check: skips it, and leaves your folders clean.
+
+Would you like to update the script so it actually saves the data to a folder or a Google Sheet when it passes?
+----------------------------
+When a new email drops, Gemini will count the exact words in the incoming text payload before formatting anything else. 
+If Odell's original resume comes in under 1,000 words, it will match the 🟢 PASSED ALL CHECKS path just like before. 
+If you test it with a giant document, your log will read 🔴 FAILED QA CHECKS and detail that the length check was the blocker.
+
+Hit Save (the little floppy disk icon) and your new original-length gatekeeper is live!
+
+
+Odell's resume checks out great for technical skills and data integrity, but the raw document broke past that 1,000-word ceiling. The script did exactly what you designed it to do: it blocked the file from saving, marked the email as processed (read), and left your folder completely clean.
+
+This proves your new gatekeeper logic is working exactly as intended. You now have a strict filter in place that handles long resumes automatically!
+------------------------------
+Finally Adding a Automatic Sendmail portion
+
 
 
